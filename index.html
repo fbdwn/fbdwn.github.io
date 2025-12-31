@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>经典扫雷</title>
+    <style>
+        /* 完全复刻Windows经典样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", "Consolas", monospace;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #c0c0c0;
+            user-select: none;
+        }
+        /* 游戏容器：经典灰色立体边框 */
+        #minesweeper {
+            border: 3px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            background-color: #c0c0c0;
+            padding: 10px;
+        }
+        /* 顶部控制面板 */
+        #control-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 280px;
+            height: 50px;
+            margin-bottom: 10px;
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            padding: 5px;
+        }
+        /* 数字显示框（地雷数/计时） */
+        .digit-box {
+            width: 60px;
+            height: 40px;
+            background-color: #000;
+            color: #ff0000;
+            font-size: 28px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            letter-spacing: 2px;
+            border: 2px solid #808080;
+        }
+        /* 重置按钮（笑脸） */
+        #reset-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            background-color: #c0c0c0;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #reset-btn:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+        }
+        /* 难度选择 */
+        #difficulty {
+            margin-bottom: 10px;
+            padding: 3px 8px;
+            background-color: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        /* 扫雷格子容器 */
+        #grid-container {
+            display: grid;
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+        }
+        /* 单个格子样式（完全复刻原版） */
+        .cell {
+            width: 16px;
+            height: 16px;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            background-color: #c0c0c0;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: default;
+        }
+        /* 已展开的格子 */
+        .cell.opened {
+            border: 1px solid #808080;
+        }
+        /* 数字颜色（原版配色） */
+        .cell.num-1 { color: #0000ff; }
+        .cell.num-2 { color: #008000; }
+        .cell.num-3 { color: #ff0000; }
+        .cell.num-4 { color: #000080; }
+        .cell.num-5 { color: #800000; }
+        .cell.num-6 { color: #008080; }
+        .cell.num-7 { color: #000000; }
+        .cell.num-8 { color: #808080; }
+    </style>
+</head>
+<body>
+    <div id="minesweeper">
+        <select id="difficulty">
+            <option value="easy">初级 (9×9, 10雷)</option>
+            <option value="medium">中级 (16×16, 40雷)</option>
+            <option value="hard">高级 (30×16, 99雷)</option>
+        </select>
+        <div id="control-panel">
+            <div class="digit-box" id="mine-count">000</div>
+            <button id="reset-btn">😊</button>
+            <div class="digit-box" id="timer">000</div>
+        </div>
+        <div id="grid-container"></div>
+    </div>
+
+    <script>
+        // 核心配置（完全复刻原版难度）
+        const DIFFICULTY = {
+            easy: { rows: 9, cols: 9, mines: 10 },
+            medium: { rows: 16, cols: 16, mines: 40 },
+            hard: { rows: 16, cols: 30, mines: 99 }
+        };
+        // 全局变量
+        let grid = [];       // 格子数据：{ isMine, isOpened, isFlagged, adjacentMines }
+        let rows = 9;
+        let cols = 9;
+        let totalMines = 10;
+        let remainingMines = 10;
+        let isGameOver = false;
+        let isFirstClick = true;
+        let timerInterval = null;
+        let seconds = 0;
+
+        // 初始化游戏
+        function initGame() {
+            // 重置状态
+            clearInterval(timerInterval);
+            seconds = 0;
+            isGameOver = false;
+            isFirstClick = true;
+            document.getElementById('timer').textContent = '000';
+            document.getElementById('reset-btn').textContent = '😊';
+            
+            // 获取难度配置
+            const selected = document.getElementById('difficulty').value;
+            rows = DIFFICULTY[selected].rows;
+            cols = DIFFICULTY[selected].cols;
+            totalMines = DIFFICULTY[selected].mines;
+            remainingMines = totalMines;
+            updateMineCount();
+
+            // 初始化格子容器
+            const gridContainer = document.getElementById('grid-container');
+            gridContainer.style.gridTemplateRows = `repeat(${rows}, 16px)`;
+            gridContainer.style.gridTemplateColumns = `repeat(${cols}, 16px)`;
+            gridContainer.innerHTML = '';
+
+            // 初始化格子数据
+            grid = [];
+            for (let r = 0; r < rows; r++) {
+                grid[r] = [];
+                for (let c = 0; c < cols; c++) {
+                    grid[r][c] = {
+                        isMine: false,
+                        isOpened: false,
+                        isFlagged: false,
+                        adjacentMines: 0
+                    };
+                    // 创建格子DOM
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    // 绑定事件（复刻原版操作逻辑）
+                    cell.addEventListener('mousedown', handleMouseDown);
+                    cell.addEventListener('contextmenu', (e) => e.preventDefault()); // 禁用右键菜单
+                    gridContainer.appendChild(cell);
+                }
+            }
+        }
+
+        // 生成地雷（避开首次点击位置）
+        function generateMines(avoidRow, avoidCol) {
+            let minesPlaced = 0;
+            while (minesPlaced < totalMines) {
+                const r = Math.floor(Math.random() * rows);
+                const c = Math.floor(Math.random() * cols);
+                // 避开首次点击位置 + 不重复布雷
+                if ((r !== avoidRow || c !== avoidCol) && !grid[r][c].isMine) {
+                    grid[r][c].isMine = true;
+                    minesPlaced++;
+                }
+            }
+            // 计算每个格子的相邻地雷数
+            calculateAdjacentMines();
+        }
+
+        // 计算相邻地雷数
+        function calculateAdjacentMines() {
+            const directions = [
+                [-1, -1], [-1, 0], [-1, 1],
+                [0, -1],          [0, 1],
+                [1, -1],  [1, 0], [1, 1]
+            ];
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (!grid[r][c].isMine) {
+                        let count = 0;
+                        for (const [dr, dc] of directions) {
+                            const nr = r + dr;
+                            const nc = c + dc;
+                            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc].isMine) {
+                                count++;
+                            }
+                        }
+                        grid[r][c].adjacentMines = count;
+                    }
+                }
+            }
+        }
+
+        // 处理鼠标点击（复刻原版左右键逻辑）
+        function handleMouseDown(e) {
+            if (isGameOver) return;
+            const cell = e.target;
+            const r = parseInt(cell.dataset.row);
+            const c = parseInt(cell.dataset.col);
+
+            // 左键（展开格子）
+            if (e.button === 0) {
+                // 首次点击：生成地雷（避开当前位置）
+                if (isFirstClick) {
+                    isFirstClick = false;
+                    generateMines(r, c);
+                    startTimer();
+                }
+                // 跳过插旗的格子
+                if (grid[r][c].isFlagged) return;
+                // 点击地雷：游戏结束
+                if (grid[r][c].isMine) {
+                    gameOver(false);
+                    return;
+                }
+                // 展开格子
+                openCell(r, c);
+                // 检查胜利条件
+                checkWin();
+            }
+            // 右键（插旗/拔旗）
+            else if (e.button === 2) {
+                e.preventDefault();
+                // 跳过已展开的格子
+                if (grid[r][c].isOpened) return;
+                // 切换旗帜状态
+                grid[r][c].isFlagged = !grid[r][c].isFlagged;
+                cell.textContent = grid[r][c].isFlagged ? '🚩' : '';
+                // 更新剩余地雷数
+                remainingMines += grid[r][c].isFlagged ? -1 : 1;
+                updateMineCount();
+            }
+            // 中键/左右键同时按：快速展开相邻格子（复刻原版）
+            else if (e.button === 1) {
+                openAdjacentCells(r, c);
+            }
+        }
+
+        // 展开单个格子
+        function openCell(r, c) {
+            // 边界/已展开/插旗 校验
+            if (r < 0 || r >= rows || c < 0 || c >= cols || grid[r][c].isOpened || grid[r][c].isFlagged) {
+                return;
+            }
+            // 标记为已展开
+            grid[r][c].isOpened = true;
+            const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+            cell.classList.add('opened');
+            // 显示内容
+            if (grid[r][c].isMine) {
+                cell.textContent = '💣';
+                cell.style.backgroundColor = '#ff0000';
+            } else if (grid[r][c].adjacentMines > 0) {
+                cell.textContent = grid[r][c].adjacentMines;
+                cell.classList.add(`num-${grid[r][c].adjacentMines}`);
+            } else {
+                // 无相邻地雷：递归展开周围格子（原版连锁展开）
+                const directions = [
+                    [-1, -1], [-1, 0], [-1, 1],
+                    [0, -1],          [0, 1],
+                    [1, -1],  [1, 0], [1, 1]
+                ];
+                for (const [dr, dc] of directions) {
+                    openCell(r + dr, c + dc);
+                }
+            }
+        }
+
+        // 快速展开相邻格子（双击/中键）
+        function openAdjacentCells(r, c) {
+            if (isGameOver || !grid[r][c].isOpened || grid[r][c].adjacentMines === 0) return;
+            
+            // 统计相邻旗帜数
+            const directions = [
+                [-1, -1], [-1, 0], [-1, 1],
+                [0, -1],          [0, 1],
+                [1, -1],  [1, 0], [1, 1]
+            ];
+            let flaggedCount = 0;
+            for (const [dr, dc] of directions) {
+                const nr = r + dr;
+                const nc = c + dc;
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc].isFlagged) {
+                    flaggedCount++;
+                }
+            }
+            // 旗帜数等于相邻地雷数：展开未标记的格子
+            if (flaggedCount === grid[r][c].adjacentMines) {
+                for (const [dr, dc] of directions) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !grid[nr][nc].isOpened && !grid[nr][nc].isFlagged) {
+                        // 踩到地雷则游戏结束
+                        if (grid[nr][nc].isMine) {
+                            gameOver(false);
+                            return;
+                        }
+                        openCell(nr, nc);
+                    }
+                }
+                checkWin();
+            }
+        }
+
+        // 游戏结束
+        function gameOver(isWin) {
+            isGameOver = true;
+            clearInterval(timerInterval);
+            const resetBtn = document.getElementById('reset-btn');
+            
+            if (isWin) {
+                resetBtn.textContent = '😎';
+                // 所有地雷插旗
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (grid[r][c].isMine && !grid[r][c].isFlagged) {
+                            const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                            cell.textContent = '🚩';
+                            grid[r][c].isFlagged = true;
+                        }
+                    }
+                }
+                alert(`恭喜胜利！用时：${seconds}秒`);
+            } else {
+                resetBtn.textContent = '😵';
+                // 显示所有地雷
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (grid[r][c].isMine && !grid[r][c].isFlagged) {
+                            const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                            cell.textContent = '💣';
+                            cell.style.backgroundColor = '#ff0000';
+                        }
+                        // 错误插旗的格子标红
+                        if (!grid[r][c].isMine && grid[r][c].isFlagged) {
+                            const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                            cell.style.backgroundColor = '#ff0000';
+                        }
+                    }
+                }
+                alert('游戏结束！踩到地雷了');
+            }
+        }
+
+        // 检查胜利条件（所有非地雷格子都已展开）
+        function checkWin() {
+            let openedNonMines = 0;
+            const totalNonMines = rows * cols - totalMines;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (!grid[r][c].isMine && grid[r][c].isOpened) {
+                        openedNonMines++;
+                    }
+                }
+            }
+            if (openedNonMines === totalNonMines) {
+                gameOver(true);
+            }
+        }
+
+        // 启动计时器
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                seconds++;
+                if (seconds > 999) seconds = 999; // 原版最大计时999秒
+                document.getElementById('timer').textContent = String(seconds).padStart(3, '0');
+            }, 1000);
+        }
+
+        // 更新剩余地雷数显示
+        function updateMineCount() {
+            const displayNum = Math.max(0, Math.min(999, remainingMines)); // 原版最大显示999
+            document.getElementById('mine-count').textContent = String(displayNum).padStart(3, '0');
+        }
+
+        // 绑定难度切换和重置按钮
+        document.getElementById('difficulty').addEventListener('change', initGame);
+        document.getElementById('reset-btn').addEventListener('click', initGame);
+
+        // 页面加载初始化
+        window.onload = initGame;
+    </script>
+</body>
+</html>
